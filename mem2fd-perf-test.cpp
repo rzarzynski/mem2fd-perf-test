@@ -70,6 +70,34 @@ public:
 };
 
 
+class FileSink : public Sink {
+  int file_fd;
+
+public:
+  FileSink() {
+    file_fd = ::open("/tmp/mem2fd", O_WRONLY | O_CREAT, S_IWUSR);
+    //file_fd = ::open("/run/user/1000/mem2fd", O_WRONLY | O_CREAT, S_IWUSR);
+    assert(file_fd > 0);
+  }
+
+  ~FileSink() {
+    ::close(file_fd);
+  }
+
+  int get_fd() override {
+    return file_fd;
+  }
+
+  const char* get_name() const override {
+    return "file";
+  }
+
+  void clean(const size_t) override {
+    off_t r = lseek(file_fd, 0, SEEK_SET);
+    assert(r == 0);
+  }
+};
+
 class Clock
 {
   friend class Range;
@@ -251,8 +279,9 @@ int main(int argc, char** argv)
 
     /* Sinks. */
     PipeSink pipe_sink(chunk_size);
+    FileSink file_sink;
     std::initializer_list<Sink*> sinks = {
-      &pipe_sink,
+      &pipe_sink, &file_sink,
     };
 
     /* Feeders. */

@@ -209,10 +209,11 @@ protected:
       .iov_len  = size
     };
 
-    int r = ::vmsplice(fds[1], &vec, 1, flags);
+    int r = ::vmsplice(fds[1], &vec, 1, flags | SPLICE_F_MOVE);// | SPLICE_F_MORE);
     assert(size == r);
 
-    r = ::splice(fds[0], nullptr, fd, nullptr, size, SPLICE_F_MOVE);
+    r = ::splice(fds[0], nullptr, fd, nullptr, size,
+                 SPLICE_F_MOVE);// | SPLICE_F_MORE);
     assert(size == r);
     return r;
   }
@@ -273,8 +274,9 @@ int main(int argc, char** argv)
          "                            (bytes)"
          "            (MiB)          (MiB/s)     (usec)\n");
 
+  static constexpr size_t mem_mul = 10;
   do /* chunk size */ {
-    void *mem = aligned_alloc(4096, chunk_size + 4096);
+    void *mem = aligned_alloc(4096, chunk_size * mem_mul + 4096);
     assert(mem != nullptr);
 
     /* Sinks. */
@@ -300,7 +302,9 @@ int main(int argc, char** argv)
         uint64_t no_tests = 0, end = 0;
 
         do /* time */ {
-          size_t written = feeder->write(*sink, mem, chunk_size);
+          void *wrk_mem = static_cast<char*>(mem)
+                        + chunk_size * (no_tests % mem_mul);
+          size_t written = feeder->write(*sink, wrk_mem, chunk_size);
           assert(chunk_size == written);
 
           sink->clean(chunk_size);

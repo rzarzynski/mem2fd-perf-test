@@ -323,8 +323,9 @@ int main(int argc, char** argv)
                total_mbytes / total_secs,
                (double)(feeder->get_feeding_time())/no_tests);
       }
-      free(mem);
     }
+
+    free(mem);
 
     printf("-------\n");
 

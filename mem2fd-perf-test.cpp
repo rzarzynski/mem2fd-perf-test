@@ -152,6 +152,22 @@ public:
   }
 };
 
+class WriteVFeeder : public Feeder  {
+public:
+  size_t write(const int fd, void* const buf, const size_t size) override {
+    struct iovec vec = {
+      .iov_base = buf,
+      .iov_len  = size,
+    };
+
+    return ::writev(fd, &vec, 1);
+  }
+
+  const char* get_name() const override {
+    return "writev";
+  }
+};
+
 class VMSpliceFeeder : public Feeder {
 protected:
   int fds[2];
@@ -241,11 +257,12 @@ int main(int argc, char** argv)
 
     /* Feeders. */
     WriteFeeder write_fed;
+    WriteVFeeder writev_fed;
     VMSpliceFeeder vmsplice0_fed(chunk_size);
     GiftingVMSpliceFeeder vmsplice_gift_fed(chunk_size);
 
     std::initializer_list<Feeder*> feeders = {
-      &write_fed, &vmsplice0_fed, &vmsplice_gift_fed
+      &write_fed, &writev_fed, &vmsplice0_fed, &vmsplice_gift_fed
     };
 
     for (auto sink : sinks) {

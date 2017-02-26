@@ -98,6 +98,108 @@ public:
   }
 };
 
+static int tcp_pipe(int (&fds)[2]) {
+  int source_fd = -1;
+  int sink_fd = -1;
+  int server_fd = -1;
+  struct sockaddr_in server_addr;
+  memset(&server_addr, 0, sizeof(struct sockaddr_in));
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = INADDR_ANY;
+  server_addr.sin_port = 0;
+  try {
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+      throw (__LINE__);
+    }
+    int enable = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) != 0) {
+      throw __LINE__;
+    }
+    if (bind(server_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != 0) {
+      throw __LINE__;
+    }
+    socklen_t len = sizeof(sockaddr_in);
+    if (getsockname(server_fd, (struct sockaddr*)&server_addr, &len) != 0) {
+      throw __LINE__;
+    }
+    if(server_addr.sin_port == 0) {
+      //derr << "Port == 0" << dendl;
+    }
+    int ret =0;
+    int bufsize = 4194304000;
+
+    ret = setsockopt(server_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
+                     sizeof(bufsize));
+    assert(0 == ret);
+
+    ret = setsockopt(server_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
+                     sizeof(bufsize));
+    assert(0 == ret);
+    if (listen(server_fd, 1) != 0) {
+      throw __LINE__;
+    }
+    sink_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sink_fd < 0) {
+      throw __LINE__;
+    }
+
+    ret = setsockopt(sink_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
+                     sizeof(bufsize));
+    assert(0 == ret);
+
+    ret = setsockopt(sink_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
+                     sizeof(bufsize));
+    assert(0 == ret);
+
+
+    if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) | O_NONBLOCK) !=0) {
+      throw __LINE__;
+    }
+    if (connect(sink_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != -1) {
+      throw __LINE__;
+    }
+    if (errno != EINPROGRESS) {
+      throw __LINE__;
+    }
+    source_fd = accept(server_fd, nullptr, nullptr);
+    if (source_fd < 0) {
+      throw __LINE__;
+    }
+    if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) & ~O_NONBLOCK) != 0) {
+      throw __LINE__;
+    }
+
+    close(server_fd);
+
+    ret = setsockopt(source_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
+                     sizeof(bufsize));
+
+    ret = setsockopt(source_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
+                     sizeof(bufsize));
+    assert(0 == ret);
+
+    fds[1] = sink_fd;
+    fds[0] = source_fd;
+    return 0;
+
+  } catch (int line) {
+    //derr << "Error tcp_pipe at" << line << dendl;
+    printf("ka boom in line: %d, errno=%d\n", line, errno);
+    if (sink_fd>=0) {
+      close(sink_fd);
+    }
+    if (source_fd>=0) {
+      close(source_fd);
+    }
+    if (server_fd>=0) {
+      close(server_fd);
+    }
+    return -1;
+  }
+}
+
+
 class Clock
 {
   friend class Range;

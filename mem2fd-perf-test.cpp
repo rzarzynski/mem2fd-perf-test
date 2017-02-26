@@ -98,106 +98,165 @@ public:
   }
 };
 
-static int tcp_pipe(int (&fds)[2]) {
-  int source_fd = -1;
-  int sink_fd = -1;
-  int server_fd = -1;
-  struct sockaddr_in server_addr;
-  memset(&server_addr, 0, sizeof(struct sockaddr_in));
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = INADDR_ANY;
-  server_addr.sin_port = 0;
-  try {
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
-      throw (__LINE__);
-    }
-    int enable = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) != 0) {
-      throw __LINE__;
-    }
-    if (bind(server_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != 0) {
-      throw __LINE__;
-    }
-    socklen_t len = sizeof(sockaddr_in);
-    if (getsockname(server_fd, (struct sockaddr*)&server_addr, &len) != 0) {
-      throw __LINE__;
-    }
-    if(server_addr.sin_port == 0) {
-      //derr << "Port == 0" << dendl;
-    }
-    int ret =0;
-    int bufsize = 4194304000;
+class SockSink : public Sink {
+  int fds[2];
+  int clean_fds[2];
+  int null_fd;
 
-    ret = setsockopt(server_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
-                     sizeof(bufsize));
-    assert(0 == ret);
+  static int tcp_pipe(int (&fds)[2]) {
+    int source_fd = -1;
+    int sink_fd = -1;
+    int server_fd = -1;
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(struct sockaddr_in));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = 0;
+    try {
+      server_fd = socket(AF_INET, SOCK_STREAM, 0);
+      if (server_fd < 0) {
+        throw (__LINE__);
+      }
+      int enable = 1;
+      if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) != 0) {
+        throw __LINE__;
+      }
+      if (bind(server_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != 0) {
+        throw __LINE__;
+      }
+      socklen_t len = sizeof(sockaddr_in);
+      if (getsockname(server_fd, (struct sockaddr*)&server_addr, &len) != 0) {
+        throw __LINE__;
+      }
+      if(server_addr.sin_port == 0) {
+        //derr << "Port == 0" << dendl;
+      }
+      int ret =0;
+#if 0
+      int bufsize = 4194304000;
 
-    ret = setsockopt(server_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
-                     sizeof(bufsize));
-    assert(0 == ret);
-    if (listen(server_fd, 1) != 0) {
-      throw __LINE__;
-    }
-    sink_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sink_fd < 0) {
-      throw __LINE__;
-    }
+      ret = setsockopt(server_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
+                       sizeof(bufsize));
+      assert(0 == ret);
 
-    ret = setsockopt(sink_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
-                     sizeof(bufsize));
-    assert(0 == ret);
+      ret = setsockopt(server_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
+                       sizeof(bufsize));
+#endif
+      assert(0 == ret);
+      if (listen(server_fd, 1) != 0) {
+        throw __LINE__;
+      }
+      sink_fd = socket(AF_INET, SOCK_STREAM, 0);
+      if (sink_fd < 0) {
+        throw __LINE__;
+      }
 
-    ret = setsockopt(sink_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
-                     sizeof(bufsize));
-    assert(0 == ret);
+#if 0
+      ret = setsockopt(sink_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
+                       sizeof(bufsize));
+      assert(0 == ret);
+
+      ret = setsockopt(sink_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
+                       sizeof(bufsize));
+      assert(0 == ret);
+#endif
 
 
-    if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) | O_NONBLOCK) !=0) {
-      throw __LINE__;
-    }
-    if (connect(sink_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != -1) {
-      throw __LINE__;
-    }
-    if (errno != EINPROGRESS) {
-      throw __LINE__;
-    }
-    source_fd = accept(server_fd, nullptr, nullptr);
-    if (source_fd < 0) {
-      throw __LINE__;
-    }
-    if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) & ~O_NONBLOCK) != 0) {
-      throw __LINE__;
-    }
+      if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) | O_NONBLOCK) !=0) {
+        throw __LINE__;
+      }
+      if (connect(sink_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != -1) {
+        throw __LINE__;
+      }
+      if (errno != EINPROGRESS) {
+        throw __LINE__;
+      }
+      source_fd = accept(server_fd, nullptr, nullptr);
+      if (source_fd < 0) {
+        throw __LINE__;
+      }
+      if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) & ~O_NONBLOCK) != 0) {
+        throw __LINE__;
+      }
 
-    close(server_fd);
+      ::close(server_fd);
 
-    ret = setsockopt(source_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
-                     sizeof(bufsize));
+#if 0
+      ret = setsockopt(source_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
+                       sizeof(bufsize));
 
-    ret = setsockopt(source_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
-                     sizeof(bufsize));
-    assert(0 == ret);
+      ret = setsockopt(source_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
+                       sizeof(bufsize));
+      assert(0 == ret);
+#endif
 
-    fds[1] = sink_fd;
-    fds[0] = source_fd;
-    return 0;
+      fds[1] = sink_fd;
+      fds[0] = source_fd;
+      return 0;
 
-  } catch (int line) {
-    //derr << "Error tcp_pipe at" << line << dendl;
-    printf("ka boom in line: %d, errno=%d\n", line, errno);
-    if (sink_fd>=0) {
-      close(sink_fd);
+    } catch (int line) {
+      //derr << "Error tcp_pipe at" << line << dendl;
+      printf("ka boom in line: %d, errno=%d\n", line, errno);
+      if (sink_fd>=0) {
+        close(sink_fd);
+      }
+      if (source_fd>=0) {
+        close(source_fd);
+      }
+      if (server_fd>=0) {
+        close(server_fd);
+      }
+      return -1;
     }
-    if (source_fd>=0) {
-      close(source_fd);
-    }
-    if (server_fd>=0) {
-      close(server_fd);
-    }
-    return -1;
   }
-}
+
+public:
+  SockSink(const size_t chunk_size) {
+    int r = tcp_pipe(fds);
+    assert(r == 0);
+
+    r = ::pipe(clean_fds);
+    assert(r == 0);
+    r = ::fcntl(clean_fds[1], F_SETPIPE_SZ, chunk_size);
+    assert(r >= chunk_size);
+
+    null_fd = ::open("/dev/null", O_WRONLY);
+    assert(null_fd > 0);
+  }
+
+  ~SockSink() {
+    ::close(null_fd);
+
+    ::close(clean_fds[0]);
+    ::close(clean_fds[1]);
+
+    ::close(fds[0]);
+    ::close(fds[1]);
+  }
+
+  int get_fd() override {
+    return fds[1];
+  }
+
+  const char* get_name() const override {
+    return "sock";
+  }
+
+  void clean(const size_t size) override {
+    char junk[size];
+
+#if 1
+    size_t r = read(fds[0], junk, size);
+    assert(r == size);
+#else
+    size_t r = ::splice(fds[0], nullptr, clean_fds[1], nullptr, size, SPLICE_F_MOVE);
+    assert(size == r);
+
+    r = ::splice(clean_fds[0], nullptr, null_fd, nullptr, size, SPLICE_F_MOVE);
+    assert(size == r);
+#endif
+  }
+};
 
 
 class Clock
@@ -383,9 +442,10 @@ int main(int argc, char** argv)
 
     /* Sinks. */
     PipeSink pipe_sink(chunk_size);
+    SockSink sock_sink(chunk_size);
     FileSink file_sink;
     std::initializer_list<Sink*> sinks = {
-      &pipe_sink, &file_sink,
+      &pipe_sink, &sock_sink, &file_sink,
     };
 
     /* Feeders. */

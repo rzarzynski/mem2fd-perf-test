@@ -1,6 +1,7 @@
-#include "sys/socket.h"
+#include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include "linux/if_alg.h"
 #include "iostream"
 #include "string.h"
@@ -10,7 +11,7 @@
 #include "sys/syscall.h"
 #include "assert.h"
 
-using namespace std;
+static constexpr char FILE_SINK_FILEPATH[] = "/run/user/1000/mem2fd";
 
 static uint64_t now_usec()
 {
@@ -75,8 +76,7 @@ class FileSink : public Sink {
 
 public:
   FileSink() {
-    file_fd = ::open("/tmp/mem2fd", O_WRONLY | O_CREAT, S_IWUSR);
-    //file_fd = ::open("/run/user/1000/mem2fd", O_WRONLY | O_CREAT, S_IWUSR);
+    file_fd = ::open(FILE_SINK_FILEPATH, O_WRONLY | O_CREAT, S_IWUSR);
     assert(file_fd > 0);
   }
 
@@ -108,106 +108,59 @@ class SockSink : public Sink {
     int sink_fd = -1;
     int server_fd = -1;
     struct sockaddr_in server_addr;
+
     memset(&server_addr, 0, sizeof(struct sockaddr_in));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = 0;
-    try {
-      server_fd = socket(AF_INET, SOCK_STREAM, 0);
-      if (server_fd < 0) {
-        throw (__LINE__);
-      }
-      int enable = 1;
-      if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) != 0) {
-        throw __LINE__;
-      }
-      if (bind(server_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != 0) {
-        throw __LINE__;
-      }
-      socklen_t len = sizeof(sockaddr_in);
-      if (getsockname(server_fd, (struct sockaddr*)&server_addr, &len) != 0) {
-        throw __LINE__;
-      }
-      if(server_addr.sin_port == 0) {
-        //derr << "Port == 0" << dendl;
-      }
-      int ret =0;
-#if 0
-      int bufsize = 4194304000;
 
-      ret = setsockopt(server_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
-                       sizeof(bufsize));
-      assert(0 == ret);
+    server_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    assert(server_fd > 0);
 
-      ret = setsockopt(server_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
-                       sizeof(bufsize));
-#endif
-      assert(0 == ret);
-      if (listen(server_fd, 1) != 0) {
-        throw __LINE__;
-      }
-      sink_fd = socket(AF_INET, SOCK_STREAM, 0);
-      if (sink_fd < 0) {
-        throw __LINE__;
-      }
+    int enable = 1;
+    int r = ::setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+    assert(r == 0);
 
-#if 0
-      ret = setsockopt(sink_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
-                       sizeof(bufsize));
-      assert(0 == ret);
+    r = ::bind(server_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr));
+    assert(r == 0);
 
-      ret = setsockopt(sink_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
-                       sizeof(bufsize));
-      assert(0 == ret);
-#endif
+    socklen_t len = sizeof(sockaddr_in);
+    r = ::getsockname(server_fd, (struct sockaddr*)&server_addr, &len);
+    assert(r == 0);
 
-
-      if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) | O_NONBLOCK) !=0) {
-        throw __LINE__;
-      }
-      if (connect(sink_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr)) != -1) {
-        throw __LINE__;
-      }
-      if (errno != EINPROGRESS) {
-        throw __LINE__;
-      }
-      source_fd = accept(server_fd, nullptr, nullptr);
-      if (source_fd < 0) {
-        throw __LINE__;
-      }
-      if (fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) & ~O_NONBLOCK) != 0) {
-        throw __LINE__;
-      }
-
-      ::close(server_fd);
-
-#if 0
-      ret = setsockopt(source_fd, SOL_SOCKET, SO_RCVBUF, &bufsize,
-                       sizeof(bufsize));
-
-      ret = setsockopt(source_fd, SOL_SOCKET, SO_SNDBUF, &bufsize,
-                       sizeof(bufsize));
-      assert(0 == ret);
-#endif
-
-      fds[1] = sink_fd;
-      fds[0] = source_fd;
-      return 0;
-
-    } catch (int line) {
-      //derr << "Error tcp_pipe at" << line << dendl;
-      printf("ka boom in line: %d, errno=%d\n", line, errno);
-      if (sink_fd>=0) {
-        close(sink_fd);
-      }
-      if (source_fd>=0) {
-        close(source_fd);
-      }
-      if (server_fd>=0) {
-        close(server_fd);
-      }
-      return -1;
+    if(server_addr.sin_port == 0) {
+      //derr << "Port == 0" << dendl;
     }
+
+    r = ::listen(server_fd, 1);
+    assert(r == 0);
+
+    sink_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    assert(sink_fd >= 0);
+
+    r = ::fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) | O_NONBLOCK);
+    assert(r == 0);
+
+    int i = 1;
+    r = ::setsockopt(sink_fd, IPPROTO_TCP, TCP_NODELAY,
+                     static_cast<void*>(&i), sizeof(i));
+    assert(r == 0);
+
+    r = ::connect(sink_fd, (const struct sockaddr*) &server_addr, sizeof(server_addr));
+    assert(r == -1);
+    assert(errno == EINPROGRESS);
+
+    source_fd = ::accept(server_fd, nullptr, nullptr);
+    assert(source_fd >= 0);
+
+    r = ::fcntl(sink_fd, F_SETFL, fcntl(sink_fd, F_GETFL,0) & ~O_NONBLOCK);
+    assert(r == 0);
+
+    ::close(server_fd);
+
+    fds[1] = sink_fd;
+    fds[0] = source_fd;
+    return 0;
   }
 
 public:
